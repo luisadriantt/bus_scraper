@@ -107,7 +107,7 @@ class BusScraper:
 
         return all_listing_urls[:max(self.min_listings, len(all_listing_urls))]
 
-    def scrape_listing(self, url: str) -> Dict[str, Any]:
+    def scrape_listing(self, url: str) -> List[Dict[str, Any]]:
         """
         Extrae información detallada de un listado individual.
 
@@ -115,7 +115,7 @@ class BusScraper:
             url: URL del listado a extraer.
 
         Returns:
-            Diccionario con la información extraída.
+            Lista de diccionarios con la información extraída.
         """
         try:
             logger.info(f"Extrayendo datos del listado: {url}")
@@ -131,9 +131,9 @@ class BusScraper:
 
         except Exception as e:
             logger.error(f"Error al extraer datos del listado {url}: {str(e)}")
-            return {}
+            return []
 
-    def scrape_all_listings(self, custom_urls: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    def scrape_all_listings(self, custom_urls: Optional[List[str]] = None) -> list[list[dict[str, Any]]]:
         """
         Extrae información de todos los listados de autobuses.
 
@@ -164,7 +164,7 @@ class BusScraper:
         logger.info(f"Extracción completada. Se obtuvieron datos de {len(all_listings)} listados")
         return all_listings
 
-    def scrape_from_file(self, filename: str) -> List[Dict[str, Any]]:
+    def scrape_from_file(self, filename: str) -> list[Any] | list[list[dict[str, Any]]]:
         """
         Extrae información de listados a partir de un archivo con URLs.
 

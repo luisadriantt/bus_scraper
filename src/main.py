@@ -84,7 +84,7 @@ def scrape_and_store(use_selenium: bool = False,
     # Limpiar y normalizar datos
     try:
         logger.info("Limpiando y normalizando datos")
-        cleaned_data = [clean_bus_data(item) for item in raw_data]
+        cleaned_data = [clean_bus_data(item) for sublist in raw_data for item in sublist]
     except Exception as e:
         logger.error(f"Error durante la limpieza de datos: {str(e)}", exc_info=True)
         return {"data": [], "inserted_ids": []}
