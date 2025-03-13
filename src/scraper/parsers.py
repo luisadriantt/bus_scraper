@@ -14,7 +14,7 @@ class BaseBusParser(abc.ABC):
     """
 
     @abc.abstractmethod
-    def parse_listing(self, html: str, source_url: str) -> Dict[str, Any]:
+    def parse_listing(self, html: str, source_url: str) -> List[Dict[str, Any]]:
         """
         Parsea el HTML de un listado de autobús y extrae la información requerida.
 

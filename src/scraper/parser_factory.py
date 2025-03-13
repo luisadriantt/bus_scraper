@@ -1,6 +1,3 @@
-"""
-Fábrica de parsers para diferentes sitios de autobuses escolares.
-"""
 import re
 import logging
 from urllib.parse import urlparse
@@ -10,9 +7,8 @@ from src.scraper.parsers import BaseBusParser
 from src.scraper.parsers_impl import (
     DefaultBusParser,
     RossBusParser,
-    SchoolBusesUSAParser,
-    MWRBusParser,
-    # Importa aquí otros parsers específicos
+    DaimlerParser,
+    MicrobirdParser
 )
 
 logger = logging.getLogger(__name__)
@@ -38,13 +34,10 @@ class ParserFactory:
         self.register_parser_for_domain("rossbus.com", RossBusParser)
         self.register_parser_for_domain("www.rossbus.com", RossBusParser)
         self.register_parser_for_domain("https://www.rossbus.com", RossBusParser)
-        self.register_parser_for_domain("schoolbusesusa.com", SchoolBusesUSAParser)
-        self.register_parser_for_domain("mwrbus.com", MWRBusParser)
-
-        # Registro por patrón en URL (regex)
-        self.register_parser_for_pattern(r"usedbusesforsale\.com\/school-bus", RossBusParser)
-
-        # Añade más parsers aquí según sea necesario
+        self.register_parser_for_domain("https://www.daimlercoachesnorthamerica.com/pre-owned-motor-coaches", DaimlerParser)
+        self.register_parser_for_domain("www.daimlercoachesnorthamerica.com/pre-owned-motor-coaches", DaimlerParser)
+        self.register_parser_for_domain("https://www.microbird.com/school-vehicles", MicrobirdParser)
+        self.register_parser_for_domain("www.microbird.com/school-vehicles", MicrobirdParser)
 
     def register_parser_for_domain(self, domain: str, parser_class: Type[BaseBusParser]):
         """

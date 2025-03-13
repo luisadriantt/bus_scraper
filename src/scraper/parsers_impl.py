@@ -380,12 +380,10 @@ class RossBusParser(BaseBusParser):
 
         return urls
 
-    def parse_listing(self, html: str, source_url: str) -> Dict[str, Any]:
+    def parse_listing(self, html: str, source_url: str) -> List[Dict[str, Any]]:
         """Parsea el HTML específico del sitio RossBusParser."""
 
-        bus_info = {}
-        overview_info = {}
-        images_info = []
+        bus_data_list = []
         from src.scraper.bus_scraper import BusScraper
         bus_scraper = BusScraper()
 
@@ -405,14 +403,18 @@ class RossBusParser(BaseBusParser):
                 # Extraer imágenes
                 images_info = self._extract_images(soup, base_url=source_url)
 
+                bus_data = {
+                    "bus_info": bus_info,
+                    "overview_info": overview_info,
+                    "images_info": images_info
+                }
+
+                bus_data_list.append(bus_data)
+
         except Exception as e:
             logger.error(f"Error al parsear listado RossBusParser {source_url}: {str(e)}")
 
-        return {
-            "bus_info": bus_info,
-            "overview_info": overview_info,
-            "images_info": images_info
-        }
+        return bus_data_list
 
     def _extract_year_make_model(self, title: str, soup: BeautifulSoup) -> Tuple[str, str, str]:
         pass
@@ -466,7 +468,7 @@ class RossBusParser(BaseBusParser):
             spec_name = spec.select_one('.First').text.strip().lower()
             if spec_name in field_selectors:
                 spec_name = 'passengers' if spec_name == 'capacity' else spec_name
-                result[spec_name] = spec.select_one('.Last').text.strip().lower()
+                result[spec_name] = spec.select_one('.Last').text.strip().lower()[:56]
 
     def _extract_overview_info(self, soup: BeautifulSoup) -> Dict[str, Any]:
         """Extrae información descriptiva específica del sitio BusesForSale."""
@@ -504,12 +506,19 @@ class RossBusParser(BaseBusParser):
         images = []
 
         # Galería de imágenes específica de BusesForSale
-        image_elements = soup.select('.bus-gallery img, .listing-gallery img')
+        image_elements = soup.find('ul', class_='slides')
+        if not image_elements:
+            return images
 
         for idx, img in enumerate(image_elements):
+            if isinstance(img, str):
+                continue
+            image = img.select_one('img')
+            if not image:
+                continue
             image_info = {
                 "image_index": idx,
-                "url": urljoin(base_url, img.get('src', '')),
+                "url": urljoin(base_url, image.get('src')),
                 "name": f"bus_image_{idx}",
             }
 
@@ -522,14 +531,14 @@ class RossBusParser(BaseBusParser):
         return images
 
 
-class SchoolBusesUSAParser(BaseBusParser):
+class DaimlerParser(BaseBusParser):
     """
-    Parser específico para el sitio SchoolBusesUSA.com
+    Parser específico para el sitio DaimlerParser.com
     """
 
     def extract_bus_urls(self, html: str, base_url: str) -> List[str]:
         """
-        Extrae las URLs individuales de autobuses de SchoolBusesUSA.com
+        Extrae las URLs individuales de autobuses de DaimlerParser.com
 
         Args:
             html: HTML de la página de listado.
@@ -541,7 +550,7 @@ class SchoolBusesUSAParser(BaseBusParser):
         soup = BeautifulSoup(html, 'lxml')
         urls = []
 
-        # SchoolBusesUSA.com usa estos selectores para sus listados
+        # DaimlerParser.com usa estos selectores para sus listados
         links = soup.select('.vehicle-listing a.vehicle-link, .inventory-grid .vehicle-item a')
         for link in links:
             href = link.get('href')
@@ -552,7 +561,7 @@ class SchoolBusesUSAParser(BaseBusParser):
         return urls
 
     def parse_listing(self, html: str, source_url: str) -> Dict[str, Any]:
-        """Parsea el HTML específico del sitio SchoolBusesUSA."""
+        """Parsea el HTML específico del sitio DaimlerParser."""
         soup = BeautifulSoup(html, 'lxml')
 
         bus_info = {}
@@ -570,7 +579,7 @@ class SchoolBusesUSAParser(BaseBusParser):
             images_info = self._extract_images(soup, base_url=source_url)
 
         except Exception as e:
-            logger.error(f"Error al parsear listado SchoolBusesUSA {source_url}: {str(e)}")
+            logger.error(f"Error al parsear listado DaimlerParser {source_url}: {str(e)}")
 
         return {
             "bus_info": bus_info,
@@ -579,16 +588,16 @@ class SchoolBusesUSAParser(BaseBusParser):
         }
 
     def _extract_basic_info(self, soup: BeautifulSoup, source_url: str) -> Dict[str, Any]:
-        """Extrae información básica específica del sitio SchoolBusesUSA."""
+        """Extrae información básica específica del sitio DaimlerParser."""
         result = {
-            "source": "schoolbusesusa.com",
+            "source": "daimlercoachesnorthamerica.com",
             "source_url": source_url,
             "scraped": 1,
             "published": 1,
             "draft": 0
         }
 
-        # Título específico para SchoolBusesUSA
+        # Título específico para DaimlerParser
         title_elem = soup.select_one('.vehicle-title, h1.title')
         if title_elem:
             result["title"] = title_elem.text.strip()
@@ -599,7 +608,7 @@ class SchoolBusesUSAParser(BaseBusParser):
         result["make"] = make
         result["model"] = model
 
-        # Precio específico para SchoolBusesUSA
+        # Precio específico para DaimlerParser
         price_elem = soup.select_one('.vehicle-price, .price')
         if price_elem:
             price_text = price_elem.text.strip()
@@ -609,7 +618,7 @@ class SchoolBusesUSAParser(BaseBusParser):
         # Extraer detalles técnicos
         self._extract_technical_details(soup, result)
 
-        # VIN específico para SchoolBusesUSA
+        # VIN específico para DaimlerParser
         vin_elem = soup.select_one('.vehicle-vin, .vin')
         if vin_elem:
             result["vin"] = vin_elem.text.strip()
@@ -617,10 +626,10 @@ class SchoolBusesUSAParser(BaseBusParser):
         return result
 
     def _extract_year_make_model(self, title: str, soup: BeautifulSoup) -> Tuple[str, str, str]:
-        """Extrae año, marca y modelo específicos del sitio SchoolBusesUSA."""
+        """Extrae año, marca y modelo específicos del sitio DaimlerParser."""
         year, make, model = "", "", ""
 
-        # SchoolBusesUSA normalmente usa una estructura de "details" con etiquetas
+        # DaimlerParser normalmente usa una estructura de "details" con etiquetas
         detail_labels = soup.select('.vehicle-details .detail-label, .specs-table th')
         detail_values = soup.select('.vehicle-details .detail-value, .specs-table td')
 
@@ -650,8 +659,8 @@ class SchoolBusesUSAParser(BaseBusParser):
         return year, make, model
 
     def _extract_technical_details(self, soup: BeautifulSoup, result: Dict[str, Any]) -> None:
-        """Extrae detalles técnicos específicos del sitio SchoolBusesUSA."""
-        # SchoolBusesUSA normalmente usa una estructura de "details" con etiquetas
+        """Extrae detalles técnicos específicos del sitio DaimlerParser."""
+        # DaimlerParser normalmente usa una estructura de "details" con etiquetas
         detail_labels = soup.select('.vehicle-details .detail-label, .specs-table th')
         detail_values = soup.select('.vehicle-details .detail-value, .specs-table td')
 
@@ -679,7 +688,7 @@ class SchoolBusesUSAParser(BaseBusParser):
                 result['interior_color'] = value
 
     def _extract_overview_info(self, soup: BeautifulSoup) -> Dict[str, Any]:
-        """Extrae información descriptiva específica del sitio SchoolBusesUSA."""
+        """Extrae información descriptiva específica del sitio DaimlerParser."""
         result = {}
 
         # Descripción general
@@ -687,7 +696,7 @@ class SchoolBusesUSAParser(BaseBusParser):
         if description_elem:
             result["mdesc"] = description_elem.text.strip()
 
-        # SchoolBusesUSA a veces tiene secciones específicas
+        # DaimlerParser a veces tiene secciones específicas
         sections = soup.select('.description-section')
         for section in sections:
             heading = section.select_one('h3, h4')
@@ -709,14 +718,14 @@ class SchoolBusesUSAParser(BaseBusParser):
         return result
 
     def _extract_images(self, soup: BeautifulSoup, base_url: str) -> List[Dict[str, Any]]:
-        """Extrae imágenes específicas del sitio SchoolBusesUSA."""
+        """Extrae imágenes específicas del sitio DaimlerParser."""
         images = []
 
-        # Galería de imágenes específica de SchoolBusesUSA
+        # Galería de imágenes específica de DaimlerParser
         image_elements = soup.select('.vehicle-gallery img, .gallery img, .carousel img')
 
         for idx, img in enumerate(image_elements):
-            # SchoolBusesUSA a veces usa data-src para carga diferida
+            # DaimlerParser a veces usa data-src para carga diferida
             src = img.get('data-src') or img.get('src', '')
 
             image_info = {
@@ -734,14 +743,14 @@ class SchoolBusesUSAParser(BaseBusParser):
         return images
 
 
-class MWRBusParser(BaseBusParser):
+class MicrobirdParser(BaseBusParser):
     """
-    Parser específico para el sitio MWRBus.com
+    Parser específico para el sitio MicrobirdParser.com
     """
 
     def extract_bus_urls(self, html: str, base_url: str) -> List[str]:
         """
-        Extrae las URLs individuales de autobuses de MWRBus.com
+        Extrae las URLs individuales de autobuses de MicrobirdParser.com
 
         Args:
             html: HTML de la página de listado.
@@ -753,7 +762,7 @@ class MWRBusParser(BaseBusParser):
         soup = BeautifulSoup(html, 'lxml')
         urls = []
 
-        # MWRBus.com usa estos selectores para sus listados
+        # MicrobirdParser.com usa estos selectores para sus listados
         links = soup.select('.inventory-list .bus-item a.detail-link, .bus-grid .bus-card a.view-details')
         for link in links:
             href = link.get('href')
@@ -764,7 +773,7 @@ class MWRBusParser(BaseBusParser):
         return urls
 
     def parse_listing(self, html: str, source_url: str) -> Dict[str, Any]:
-        """Parsea el HTML específico del sitio MWRBus."""
+        """Parsea el HTML específico del sitio MicrobirdParser."""
         soup = BeautifulSoup(html, 'lxml')
 
         bus_info = {}
@@ -782,7 +791,7 @@ class MWRBusParser(BaseBusParser):
             images_info = self._extract_images(soup, base_url=source_url)
 
         except Exception as e:
-            logger.error(f"Error al parsear listado MWRBus {source_url}: {str(e)}")
+            logger.error(f"Error al parsear listado MicrobirdParser {source_url}: {str(e)}")
 
         return {
             "bus_info": bus_info,
@@ -791,16 +800,16 @@ class MWRBusParser(BaseBusParser):
         }
 
     def _extract_basic_info(self, soup: BeautifulSoup, source_url: str) -> Dict[str, Any]:
-        """Extrae información básica específica del sitio MWRBus."""
+        """Extrae información básica específica del sitio MicrobirdParser."""
         result = {
-            "source": "mwrbus.com",
+            "source": "microbird.com",
             "source_url": source_url,
             "scraped": 1,
             "published": 1,
             "draft": 0
         }
 
-        # Título específico para MWRBus
+        # Título específico para MicrobirdParser
         title_elem = soup.select_one('.inventory-title, .product-title')
         if title_elem:
             result["title"] = title_elem.text.strip()
@@ -811,7 +820,7 @@ class MWRBusParser(BaseBusParser):
         result["make"] = make
         result["model"] = model
 
-        # Precio específico para MWRBus
+        # Precio específico para MicrobirdParser
         price_elem = soup.select_one('.inventory-price, .price')
         if price_elem:
             price_text = price_elem.text.strip()
@@ -821,7 +830,7 @@ class MWRBusParser(BaseBusParser):
         # Extraer detalles técnicos
         self._extract_technical_details(soup, result)
 
-        # VIN específico para MWRBus
+        # VIN específico para MicrobirdParser
         vin_elem = soup.select_one('.inventory-vin, .vin')
         if vin_elem:
             result["vin"] = vin_elem.text.strip()
@@ -829,10 +838,10 @@ class MWRBusParser(BaseBusParser):
         return result
 
     def _extract_year_make_model(self, title: str, soup: BeautifulSoup) -> Tuple[str, str, str]:
-        """Extrae año, marca y modelo específicos del sitio MWRBus."""
+        """Extrae año, marca y modelo específicos del sitio MicrobirdParser."""
         year, make, model = "", "", ""
 
-        # MWRBus normalmente muestra estos datos en una lista de detalles
+        # MicrobirdParser normalmente muestra estos datos en una lista de detalles
         detail_list = soup.select('.inventory-details li, .details li')
         for item in detail_list:
             text = item.text.strip().lower()
@@ -858,8 +867,8 @@ class MWRBusParser(BaseBusParser):
         return year, make, model
 
     def _extract_technical_details(self, soup: BeautifulSoup, result: Dict[str, Any]) -> None:
-        """Extrae detalles técnicos específicos del sitio MWRBus."""
-        # MWRBus normalmente muestra estos datos en una lista de detalles
+        """Extrae detalles técnicos específicos del sitio MicrobirdParser."""
+        # MicrobirdParser normalmente muestra estos datos en una lista de detalles
         detail_list = soup.select('.inventory-details li, .details li, .specs li')
 
         for item in detail_list:
@@ -891,7 +900,7 @@ class MWRBusParser(BaseBusParser):
                 result['interior_color'] = text.split('interior color:')[1].strip()
 
     def _extract_overview_info(self, soup: BeautifulSoup) -> Dict[str, Any]:
-        """Extrae información descriptiva específica del sitio MWRBus."""
+        """Extrae información descriptiva específica del sitio MicrobirdParser."""
         result = {}
 
         # Descripción general
@@ -899,7 +908,7 @@ class MWRBusParser(BaseBusParser):
         if description_elem:
             result["mdesc"] = description_elem.text.strip()
 
-        # MWRBus a veces segmenta la descripción en secciones
+        # MicrobirdParser a veces segmenta la descripción en secciones
         sections = soup.select('.description-section, .info-section')
         for section in sections:
             heading = section.select_one('h3, h4')
@@ -921,14 +930,14 @@ class MWRBusParser(BaseBusParser):
         return result
 
     def _extract_images(self, soup: BeautifulSoup, base_url: str) -> List[Dict[str, Any]]:
-        """Extrae imágenes específicas del sitio MWRBus."""
+        """Extrae imágenes específicas del sitio MicrobirdParser."""
         images = []
 
-        # Galería de imágenes específica de MWRBus
+        # Galería de imágenes específica de MicrobirdParser
         image_elements = soup.select('.inventory-gallery img, .gallery img, .slider img')
 
         for idx, img in enumerate(image_elements):
-            # MWRBus a veces usa data-src para carga diferida
+            # MicrobirdParser a veces usa data-src para carga diferida
             src = img.get('data-src') or img.get('src', '')
 
             image_info = {
