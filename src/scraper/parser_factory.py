@@ -31,13 +31,9 @@ class ParserFactory:
     def _register_parsers(self):
         """Registra todos los parsers conocidos."""
         # Registro por dominio exacto
-        self.register_parser_for_domain("rossbus.com", RossBusParser)
         self.register_parser_for_domain("www.rossbus.com", RossBusParser)
-        self.register_parser_for_domain("https://www.rossbus.com", RossBusParser)
-        self.register_parser_for_domain("https://www.daimlercoachesnorthamerica.com/pre-owned-motor-coaches", DaimlerParser)
-        self.register_parser_for_domain("www.daimlercoachesnorthamerica.com/pre-owned-motor-coaches", DaimlerParser)
-        self.register_parser_for_domain("https://www.microbird.com/school-vehicles", MicrobirdParser)
-        self.register_parser_for_domain("www.microbird.com/school-vehicles", MicrobirdParser)
+        self.register_parser_for_domain("www.daimlercoachesnorthamerica.com", DaimlerParser)
+        self.register_parser_for_domain("www.microbird.com", MicrobirdParser)
 
     def register_parser_for_domain(self, domain: str, parser_class: Type[BaseBusParser]):
         """
@@ -48,17 +44,6 @@ class ParserFactory:
             parser_class: Clase de parser a utilizar.
         """
         self.parsers_by_domain[domain] = parser_class
-
-    def register_parser_for_pattern(self, pattern: str, parser_class: Type[BaseBusParser]):
-        """
-        Registra un parser para un patrón de URL (usando regex).
-
-        Args:
-            pattern: Patrón regex para URLs.
-            parser_class: Clase de parser a utilizar.
-        """
-        compiled_pattern = re.compile(pattern)
-        self.parsers_by_pattern[compiled_pattern] = parser_class
 
     def get_parser(self, url: str) -> BaseBusParser:
         """

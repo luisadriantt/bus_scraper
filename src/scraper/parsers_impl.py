@@ -1,15 +1,19 @@
-"""
-Implementaciones concretas de parsers para diferentes sitios web de autobuses escolares.
-"""
 import re
 import logging
+from time import sleep
 from typing import Dict, Any, List, Tuple, Optional
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
-from soupsieve.util import lower
+from selenium.common import TimeoutException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.ie.webdriver import WebDriver
+from selenium.webdriver.remote.webelement import WebElement
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 from src.scraper.parsers import BaseBusParser
+from src.scraper.utils import wait_for_element_to_have_content, html_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -536,58 +540,49 @@ class DaimlerParser(BaseBusParser):
     Parser específico para el sitio DaimlerParser.com
     """
 
-    def extract_bus_urls(self, html: str, base_url: str) -> List[str]:
+    def extract_bus_urls(self, driver: WebDriver, base_url: str) -> List[WebElement]:
         """
         Extrae las URLs individuales de autobuses de DaimlerParser.com
 
         Args:
-            html: HTML de la página de listado.
+            driver: selenium driver.
             base_url: URL base para construir URLs completas.
 
         Returns:
             Lista de URLs de autobuses individuales.
         """
-        soup = BeautifulSoup(html, 'lxml')
-        urls = []
+        if buses := driver.find_elements(By.CSS_SELECTOR, ".coaches-models-wrapper"):
+            buses = buses[1].find_elements(By.CSS_SELECTOR, ".coaches-models-box")
+        return buses
 
-        # DaimlerParser.com usa estos selectores para sus listados
-        links = soup.select('.vehicle-listing a.vehicle-link, .inventory-grid .vehicle-item a')
-        for link in links:
-            href = link.get('href')
-            if href:
-                full_url = urljoin(base_url, href)
-                urls.append(full_url)
+    def parse_listing(self, driver: str|WebDriver, source_url:str) -> List[Dict[str, Any]]:
+        # soup = BeautifulSoup(html, 'lxml')
 
-        return urls
-
-    def parse_listing(self, html: str, source_url: str) -> Dict[str, Any]:
-        """Parsea el HTML específico del sitio DaimlerParser."""
-        soup = BeautifulSoup(html, 'lxml')
-
-        bus_info = {}
-        overview_info = {}
-        images_info = []
+        bus_data_list = []
 
         try:
-            # Extraer información básica
-            bus_info = self._extract_basic_info(soup, source_url)
+            buses_to_scrap = self.extract_bus_urls(driver, source_url)
+            for bus in buses_to_scrap:
+                # Extraer información básica
+                bus_info = self._extract_basic_info(bus, source_url, driver)
 
-            # Extraer descripciones
-            overview_info = self._extract_overview_info(soup)
+                # Extraer imágenes
+                images_info = self._extract_images(bus, base_url=source_url, driver=driver)
 
-            # Extraer imágenes
-            images_info = self._extract_images(soup, base_url=source_url)
+                bus_data = {
+                    "bus_info": bus_info,
+                    "overview_info": {},
+                    "images_info": images_info
+                }
+
+                bus_data_list.append(bus_data)
 
         except Exception as e:
             logger.error(f"Error al parsear listado DaimlerParser {source_url}: {str(e)}")
 
-        return {
-            "bus_info": bus_info,
-            "overview_info": overview_info,
-            "images_info": images_info
-        }
+        return bus_data_list
 
-    def _extract_basic_info(self, soup: BeautifulSoup, source_url: str) -> Dict[str, Any]:
+    def _extract_basic_info(self, bus: WebElement, source_url: str, driver: WebDriver) -> Dict[str, Any]:
         """Extrae información básica específica del sitio DaimlerParser."""
         result = {
             "source": "daimlercoachesnorthamerica.com",
@@ -596,149 +591,116 @@ class DaimlerParser(BaseBusParser):
             "published": 1,
             "draft": 0
         }
+        max_attempts = 5
+        attempt = 0
 
-        # Título específico para DaimlerParser
-        title_elem = soup.select_one('.vehicle-title, h1.title')
-        if title_elem:
-            result["title"] = title_elem.text.strip()
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.coaches-models-content h4"))
+        )
 
-        # Extraer año, marca y modelo
-        year, make, model = self._extract_year_make_model(result.get("title", ""), soup)
-        result["year"] = year
-        result["make"] = make
-        result["model"] = model
+        try:
+            content_div = wait_for_element_to_have_content(
+                bus,
+                "div.coaches-models-content h4",
+                timeout=15
+            )
 
-        # Precio específico para DaimlerParser
-        price_elem = soup.select_one('.vehicle-price, .price')
-        if price_elem:
-            price_text = price_elem.text.strip()
-            result["price"] = price_text
-            result["cprice"] = self._extract_numeric_price(price_text)
+            title_elem = content_div.get_attribute("innerHTML").strip() or content_div.text.strip()
+            title_elem = html_to_text(title_elem)
+            title_elem = title_elem.split('–')
+            result["title"] = title_elem[0].strip()
+            # result["gvwr"] = title_elem[1]
+            result["passengers"] = title_elem[2].strip()
+            result["price"] = title_elem[-1].split('|')[-1].strip()
+            result["cprice"] = self._extract_numeric_price(title_elem[-1].split('|')[-1].strip())
+            result["year"] = title_elem[0].split(' ')[0].strip()
+            result["make"] = title_elem[0].split(' ')[1].strip()
+            result["model"] = " ".join(title_elem[0].split(' ')[1:]).strip()
 
-        # Extraer detalles técnicos
-        self._extract_technical_details(soup, result)
 
-        # VIN específico para DaimlerParser
-        vin_elem = soup.select_one('.vehicle-vin, .vin')
-        if vin_elem:
-            result["vin"] = vin_elem.text.strip()
+        except TimeoutException as e:
+            logger.error(f"Error al conectar para h4 {source_url}: {str(e)}")
+            return {}
+        except Exception as e:
+            logger.error(f"Error al conectar para h4 {source_url}: {str(e)}")
+            return {}
+
+        try:
+            content_div = wait_for_element_to_have_content(
+                bus,
+                "div.coaches-models-content div",
+                timeout=15
+            )
+            bus_info = content_div.get_attribute("innerHTML").strip() or content_div.text.strip()
+            bus_info = html_to_text(bus_info)
+            bus_info = bus_info.split(' ')
+            result["vin"] = bus_info[1]
+            result["engine"] = bus_info[3]
+            result["mileage"] = bus_info[5]
+
+
+        except TimeoutException as e:
+            logger.error(f"Error al conectar para div {source_url}: {str(e)}")
+            return {}
+        except Exception as e:
+            logger.error(f"Error al conectar para div {source_url}: {str(e)}")
+            return {}
 
         return result
 
     def _extract_year_make_model(self, title: str, soup: BeautifulSoup) -> Tuple[str, str, str]:
-        """Extrae año, marca y modelo específicos del sitio DaimlerParser."""
-        year, make, model = "", "", ""
-
-        # DaimlerParser normalmente usa una estructura de "details" con etiquetas
-        detail_labels = soup.select('.vehicle-details .detail-label, .specs-table th')
-        detail_values = soup.select('.vehicle-details .detail-value, .specs-table td')
-
-        for i in range(min(len(detail_labels), len(detail_values))):
-            label = detail_labels[i].text.strip().lower()
-            value = detail_values[i].text.strip()
-
-            if 'year' in label:
-                year = value
-            elif 'make' in label:
-                make = value
-            elif 'model' in label:
-                model = value
-
-        # Si no se encuentra en elementos específicos, intentar extraer del título
-        if not year or not make or not model:
-            if title:
-                match = re.search(r'(\d{4})\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*)', title)
-                if match:
-                    if not year:
-                        year = match.group(1)
-                    if not make:
-                        make = match.group(2)
-                    if not model:
-                        model = match.group(3)
-
-        return year, make, model
+        pass
 
     def _extract_technical_details(self, soup: BeautifulSoup, result: Dict[str, Any]) -> None:
-        """Extrae detalles técnicos específicos del sitio DaimlerParser."""
-        # DaimlerParser normalmente usa una estructura de "details" con etiquetas
-        detail_labels = soup.select('.vehicle-details .detail-label, .specs-table th')
-        detail_values = soup.select('.vehicle-details .detail-value, .specs-table td')
-
-        for i in range(min(len(detail_labels), len(detail_values))):
-            label = detail_labels[i].text.strip().lower()
-            value = detail_values[i].text.strip()
-
-            if 'mileage' in label or 'odometer' in label:
-                result['mileage'] = value
-            elif 'passenger' in label or 'capacity' in label:
-                result['passengers'] = value
-            elif 'wheelchair' in label or 'accessible' in label:
-                result['wheelchair'] = value
-            elif 'engine' in label:
-                result['engine'] = value
-            elif 'transmission' in label:
-                result['transmission'] = value
-            elif 'gvwr' in label or 'gross weight' in label:
-                result['gvwr'] = value
-            elif 'color' in label and 'interior' not in label and 'exterior' not in label:
-                result['color'] = value
-            elif 'exterior color' in label:
-                result['exterior_color'] = value
-            elif 'interior color' in label:
-                result['interior_color'] = value
+        pass
 
     def _extract_overview_info(self, soup: BeautifulSoup) -> Dict[str, Any]:
-        """Extrae información descriptiva específica del sitio DaimlerParser."""
-        result = {}
+        pass
 
-        # Descripción general
-        description_elem = soup.select_one('.vehicle-description, .description')
-        if description_elem:
-            result["mdesc"] = description_elem.text.strip()
-
-        # DaimlerParser a veces tiene secciones específicas
-        sections = soup.select('.description-section')
-        for section in sections:
-            heading = section.select_one('h3, h4')
-            content = section.select_one('.section-content')
-
-            if heading and content:
-                heading_text = heading.text.strip().lower()
-                content_text = content.text.strip()
-
-                if 'interior' in heading_text:
-                    result["intdesc"] = content_text
-                elif 'exterior' in heading_text:
-                    result["extdesc"] = content_text
-                elif 'feature' in heading_text:
-                    result["features"] = content_text
-                elif 'spec' in heading_text:
-                    result["specs"] = content_text
-
-        return result
-
-    def _extract_images(self, soup: BeautifulSoup, base_url: str) -> List[Dict[str, Any]]:
+    def _extract_images(self, element: WebElement, base_url: str, driver: WebDriver) -> List[Dict[str, Any]]:
         """Extrae imágenes específicas del sitio DaimlerParser."""
+
         images = []
 
-        # Galería de imágenes específica de DaimlerParser
-        image_elements = soup.select('.vehicle-gallery img, .gallery img, .carousel img')
+        try:
+            gallery_link = element.find_element(By.CSS_SELECTOR, "a.fancybox-gallery")
+            driver.execute_script("arguments[0].click();", gallery_link)
 
-        for idx, img in enumerate(image_elements):
-            # DaimlerParser a veces usa data-src para carga diferida
-            src = img.get('data-src') or img.get('src', '')
+            # Esperar a que se abra la galería
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, ".fancybox-thumbs__list"))
+            )
 
-            image_info = {
-                "image_index": idx,
-                "url": urljoin(base_url, src),
-                "name": f"bus_image_{idx}",
-            }
+            # Obtener las miniaturas
+            thumbs_container = driver.find_element(By.CLASS_NAME, "fancybox-thumbs__list")
+            thumb_links = thumbs_container.find_elements(By.TAG_NAME, "a")
 
-            # Extraer descripción/alt text si está disponible
-            if img.get('alt'):
-                image_info["description"] = img.get('alt')
+            pattern = r"background-image:url\((.*?)\)"
 
-            images.append(image_info)
+            for idx, link in enumerate(thumb_links):
+                style_attr = link.get_attribute("style")
+
+                match = re.search(pattern, style_attr)
+                if match:
+                    url = match.group(1)
+                    url = url.strip("'\"")
+                    image_info = {
+                        "image_index": idx,
+                        "url": urljoin(base_url, url),
+                        "name": f"bus_image_{idx}",
+                    }
+                    images.append(image_info)
+
+        except Exception as e:
+            print(f"Error extracting images: {str(e)}")
+
+        # finally:
+        #     # Cerrar fancybox
+        #     try:
+        #         close_button = driver.find_element(By.CSS_SELECTOR, ".fancybox-button fancybox-button--close")
+        #         close_button.click()
+        #     except Exception as e:
+        #         print(f"Error cerrando fb: {str(e)}")
 
         return images
 

@@ -1,10 +1,9 @@
-"""
-Definición de interfaces de parsing para el scraper de autobuses.
-"""
 import abc
 import logging
 from typing import Dict, Any, List, Tuple, Optional
 from bs4 import BeautifulSoup
+from selenium.webdriver.ie.webdriver import WebDriver
+from selenium.webdriver.remote.webelement import WebElement
 
 logger = logging.getLogger(__name__)
 
@@ -14,21 +13,21 @@ class BaseBusParser(abc.ABC):
     """
 
     @abc.abstractmethod
-    def parse_listing(self, html: str, source_url: str) -> List[Dict[str, Any]]:
+    def parse_listing(self, *args, **kwargs) -> List[Dict[str, Any]]|List[WebElement]:
         """
         Parsea el HTML de un listado de autobús y extrae la información requerida.
 
         Args:
             html: HTML del listado.
             source_url: URL de origen para referencias.
-
+            selenium_driver: driver de selenium
         Returns:
             Diccionario con la información estructurada del autobús.
         """
         pass
 
     @abc.abstractmethod
-    def extract_bus_urls(self, html: str, base_url: str) -> List[str]:
+    def extract_bus_urls(self, *args, **kwargs) -> List[str]:
         """
         Extrae las URLs individuales de autobuses de una página de listado.
 
@@ -42,7 +41,7 @@ class BaseBusParser(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def _extract_basic_info(self, soup: BeautifulSoup, source_url: str) -> Dict[str, Any]:
+    def _extract_basic_info(self, *args, **kwargs) -> Dict[str, Any]:
         """
         Extrae la información básica del autobús.
 
@@ -94,13 +93,14 @@ class BaseBusParser(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def _extract_images(self, soup: BeautifulSoup, base_url: str) -> List[Dict[str, Any]]:
+    def _extract_images(self, *args, **kwargs) -> List[Dict[str, Any]]:
         """
         Extrae URLs de imágenes y metadatos asociados.
 
         Args:
             soup: Objeto BeautifulSoup del HTML.
             base_url: URL base para construir URLs completas.
+            web_driver: driver de selenium
 
         Returns:
             Lista de diccionarios con información de imágenes.

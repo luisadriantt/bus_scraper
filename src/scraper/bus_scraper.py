@@ -4,6 +4,7 @@ import requests
 from typing import List, Dict, Any, Optional
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from selenium.webdriver.ie.webdriver import WebDriver
 
 from config.config import SCRAPING_CONFIG
 from src.scraper.parser_factory import ParserFactory
@@ -43,7 +44,7 @@ class BusScraper:
             self.driver.quit()
 
     @retry_on_failure(max_retries=SCRAPING_CONFIG["max_retries"])
-    def fetch_page(self, url: str) -> str:
+    def fetch_page(self, url: str) -> WebDriver | str:
         """
         Obtiene el HTML de una página.
 
@@ -56,7 +57,7 @@ class BusScraper:
         if self.use_selenium:
             self.driver.get(url)
             time.sleep(self.delay)  # Espera para carga dinámica
-            return self.driver.page_source
+            return self.driver
         else:
             response = requests.get(url, headers=self.headers, timeout=self.timeout, verify=False)
             response.raise_for_status()
