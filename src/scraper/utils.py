@@ -1,14 +1,14 @@
-"""
-Utilidades para el scraper de buses escolares.
-"""
 import time
 import logging
 import functools
 import json
 from typing import Callable, Any, TypeVar
 from selenium import webdriver
+from selenium.common import TimeoutException
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from bs4 import BeautifulSoup
 from webdriver_manager.chrome import ChromeDriverManager
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ def setup_selenium_driver() -> webdriver.Chrome:
         Instancia configurada de webdriver.Chrome
     """
     chrome_options = Options()
-    # chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--ignore-certificate-errors")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -37,8 +37,8 @@ def setup_selenium_driver() -> webdriver.Chrome:
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
     # Inicializar el driver
-    # service = Service(ChromeDriverManager().install())
-    service = Service('/usr/local/bin/chromedriver')
+    service = Service(ChromeDriverManager().install())
+    # service = Service('/usr/local/bin/chromedriver')
     driver = webdriver.Chrome(service=service, options=chrome_options)
 
     return driver
@@ -73,7 +73,6 @@ def retry_on_failure(max_retries: int = 3, delay: int = 5) -> Callable[[F], F]:
                         f"Error en {func.__name__} (intento {retries}/{max_retries}): {str(e)}. Reintentando en {delay} segundos...")
                     time.sleep(delay)
 
-            # Este punto nunca debería alcanzarse debido a la cláusula raise dentro del bucle
             return None
 
         return wrapper
@@ -97,21 +96,45 @@ def save_to_json(data: Any, filename: str) -> None:
         logger.error(f"Error al guardar datos en {filename}: {str(e)}")
 
 
-def load_from_json(filename: str) -> Any:
+def wait_for_element_to_have_content(parent, selector, timeout=10, check_interval=0.5):
     """
-    Carga datos desde un archivo JSON.
+    Espera a que un elemento tenga contenido de texto o HTML
 
     Args:
-        filename: Nombre del archivo.
+        parent: El elemento padre donde buscar
+        selector: El selector CSS para encontrar el elemento
+        timeout: Tiempo máximo de espera en segundos
+        check_interval: Intervalo entre comprobaciones en segundos
 
     Returns:
-        Datos cargados.
+        El elemento cuando tiene contenido
     """
-    try:
-        with open(filename, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        logger.info(f"Datos cargados exitosamente desde {filename}")
-        return data
-    except Exception as e:
-        logger.error(f"Error al cargar datos desde {filename}: {str(e)}")
-        return None
+    end_time = time.time() + timeout
+
+    while time.time() < end_time:
+        try:
+            element = parent.find_element(By.CSS_SELECTOR, selector)
+
+            # Verificar si tiene contenido (texto o HTML)
+            if element.text.strip() or element.get_attribute("innerHTML").strip():
+                return element
+        except:
+            logger.error(f"Error en el elemento {selector} en {parent}")
+
+        time.sleep(check_interval)
+
+    raise TimeoutException(f"El elemento '{selector}' no tiene contenido después de {timeout} segundos")
+
+
+def html_to_text(html_content):
+    """Convierte HTML a texto plano usando BeautifulSoup"""
+    if isinstance(html_content, list):
+        html_content = ''.join(html_content)
+
+    # Crear objeto BeautifulSoup
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    # Obtener solo el texto
+    text = soup.get_text(separator=' ', strip=True)
+
+    return text

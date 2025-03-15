@@ -101,8 +101,8 @@ class DatabaseManager:
 
             # Verificar si el autobús ya existe (por URL o VIN)
             existing_bus = None
-            if bus_info.get("source_url"):
-                existing_bus = session.query(Bus).filter_by(source_url=bus_info["source_url"]).first()
+            # if bus_info.get("source_url"):
+            #     existing_bus = session.query(Bus).filter_by(source_url=bus_info["source_url"]).first()
 
             if not existing_bus and bus_info.get("vin"):
                 existing_bus = session.query(Bus).filter_by(vin=bus_info["vin"]).first()
