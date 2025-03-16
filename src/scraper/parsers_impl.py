@@ -12,6 +12,7 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+from src.pdf_parser.extract_specs import get_micro_bird_specs
 from src.scraper.parsers import BaseBusParser
 from src.scraper.utils import wait_for_element_to_have_content, html_to_text
 
@@ -433,8 +434,6 @@ class RossBusParser(BaseBusParser):
             "draft": 0
         }
 
-        # Título específico para BusesForSale
-
         if title_elem := soup.select_one('h5.BlueTitle'):
             result["title"] = title_elem.text.strip()
         if description_elem := soup.select_one('.Describe.FParagraph1.EditorText'):
@@ -556,8 +555,6 @@ class DaimlerParser(BaseBusParser):
         return buses
 
     def parse_listing(self, driver: str|WebDriver, source_url:str) -> List[Dict[str, Any]]:
-        # soup = BeautifulSoup(html, 'lxml')
-
         bus_data_list = []
 
         try:
@@ -675,7 +672,7 @@ class DaimlerParser(BaseBusParser):
             thumbs_container = driver.find_element(By.CLASS_NAME, "fancybox-thumbs__list")
             thumb_links = thumbs_container.find_elements(By.TAG_NAME, "a")
 
-            pattern = r"background-image:url\((.*?)\)"
+            pattern = r"background-image: url\((.*?)\)"
 
             for idx, link in enumerate(thumb_links):
                 style_attr = link.get_attribute("style")
@@ -724,42 +721,56 @@ class MicrobirdParser(BaseBusParser):
         soup = BeautifulSoup(html, 'lxml')
         urls = []
 
-        # MicrobirdParser.com usa estos selectores para sus listados
-        links = soup.select('.inventory-list .bus-item a.detail-link, .bus-grid .bus-card a.view-details')
+        links = soup.select('.comp-kyd72ft7-container .comp-kyd72fuw1')
         for link in links:
-            href = link.get('href')
+            href = link.find(attrs={"data-testid": "linkElement"}).get('href')
             if href:
                 full_url = urljoin(base_url, href)
                 urls.append(full_url)
 
         return urls
 
-    def parse_listing(self, html: str, source_url: str) -> Dict[str, Any]:
+    def parse_listing(self, html: str, source_url: str) -> List[Dict[str, Any]]:
         """Parsea el HTML específico del sitio MicrobirdParser."""
         soup = BeautifulSoup(html, 'lxml')
 
-        bus_info = {}
+        bus_data_list = []
+        from src.scraper.bus_scraper import BusScraper
+        bus_scraper = BusScraper()
         overview_info = {}
-        images_info = []
 
         try:
-            # Extraer información básica
-            bus_info = self._extract_basic_info(soup, source_url)
+            urls_to_scrap = self.extract_bus_urls(html, source_url)
+            for source_url in urls_to_scrap:
+                html = bus_scraper.fetch_page(source_url)
+                soup = BeautifulSoup(html, 'lxml')
+                # Extraer información básica
+                bus_info = self._extract_basic_info(soup, source_url)
 
-            # Extraer descripciones
-            overview_info = self._extract_overview_info(soup)
+                if pdf_link := soup.find('a', class_="VU4Mnk wixui-button PlZyDq"):
+                    pdf_link = pdf_link.get('href')
+                    # Extraer detalles desde pdf
+                    bus_details = get_micro_bird_specs(pdf_link)
+                    # Extraer detalles técnicos
+                    self._extract_technical_details(bus_details, bus_info)
+                    # Extraer descripciones
+                    overview_info = self._extract_overview_info(bus_details)
 
-            # Extraer imágenes
-            images_info = self._extract_images(soup, base_url=source_url)
+                # Extraer imágenes
+                images_info = self._extract_images(soup, base_url=source_url)
+
+                bus_data = {
+                    "bus_info": bus_info,
+                    "overview_info": overview_info,
+                    "images_info": images_info
+                }
+
+                bus_data_list.append(bus_data)
 
         except Exception as e:
             logger.error(f"Error al parsear listado MicrobirdParser {source_url}: {str(e)}")
 
-        return {
-            "bus_info": bus_info,
-            "overview_info": overview_info,
-            "images_info": images_info
-        }
+        return bus_data_list
 
     def _extract_basic_info(self, soup: BeautifulSoup, source_url: str) -> Dict[str, Any]:
         """Extrae información básica específica del sitio MicrobirdParser."""
@@ -771,147 +782,80 @@ class MicrobirdParser(BaseBusParser):
             "draft": 0
         }
 
-        # Título específico para MicrobirdParser
-        title_elem = soup.select_one('.inventory-title, .product-title')
-        if title_elem:
+        if title_elem := soup.select_one('.comp-kx0qksd52, .comp-kx0r6sgl3, .comp-kwgt0yu2'):
             result["title"] = title_elem.text.strip()
-
-        # Extraer año, marca y modelo
-        year, make, model = self._extract_year_make_model(result.get("title", ""), soup)
-        result["year"] = year
-        result["make"] = make
-        result["model"] = model
-
-        # Precio específico para MicrobirdParser
-        price_elem = soup.select_one('.inventory-price, .price')
-        if price_elem:
-            price_text = price_elem.text.strip()
-            result["price"] = price_text
-            result["cprice"] = self._extract_numeric_price(price_text)
-
-        # Extraer detalles técnicos
-        self._extract_technical_details(soup, result)
-
-        # VIN específico para MicrobirdParser
-        vin_elem = soup.select_one('.inventory-vin, .vin')
-        if vin_elem:
-            result["vin"] = vin_elem.text.strip()
+        if description := soup.select_one(".comp-kx0qksa2, .comp-kwgruj2u, .comp-kx0r6sdf"):
+            desc = '\n'.join([desc.text.strip() for desc in description.find_all("p")])
+            result["description"] = desc
+        if wheelchair := soup.find('h3', {'id': 'title_3', 'class': 'question-title'}):
+            result["wheelchair"] = 'Yes' if 'Special' in wheelchair.text else 'No'
 
         return result
 
     def _extract_year_make_model(self, title: str, soup: BeautifulSoup) -> Tuple[str, str, str]:
-        """Extrae año, marca y modelo específicos del sitio MicrobirdParser."""
-        year, make, model = "", "", ""
+        pass
 
-        # MicrobirdParser normalmente muestra estos datos en una lista de detalles
-        detail_list = soup.select('.inventory-details li, .details li')
-        for item in detail_list:
-            text = item.text.strip().lower()
-            if 'year:' in text:
-                year = text.split('year:')[1].strip()
-            elif 'make:' in text:
-                make = text.split('make:')[1].strip()
-            elif 'model:' in text:
-                model = text.split('model:')[1].strip()
+    def _extract_technical_details(self, bus_details: dict, result: Dict[str, Any]) -> None:
+        """Extrae detalles técnicos específicos del sitio MicrobirdParser desde archivo PDF."""
+        field_selectors = [
+            "capacity",
+            "engine",
+            "transmission",
+            "gvwr",
+            "brake",
+            "passengers",
+            "transmission",
+            "chassis",
+            "brake"
+        ]
 
-        # Si no se encuentra en elementos específicos, intentar extraer del título
-        if not year or not make or not model:
-            if title:
-                match = re.search(r'(\d{4})\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+([A-Za-z0-9]+(?:\s+[A-Za-z0-9]+)*)', title)
-                if match:
-                    if not year:
-                        year = match.group(1)
-                    if not make:
-                        make = match.group(2)
-                    if not model:
-                        model = match.group(3)
+        if not bus_details:
+            return
 
-        return year, make, model
+        for key, value in bus_details.items():
+            if key.lower() in field_selectors:
+                result[key.lower()] = value[:50]
 
-    def _extract_technical_details(self, soup: BeautifulSoup, result: Dict[str, Any]) -> None:
-        """Extrae detalles técnicos específicos del sitio MicrobirdParser."""
-        # MicrobirdParser normalmente muestra estos datos en una lista de detalles
-        detail_list = soup.select('.inventory-details li, .details li, .specs li')
 
-        for item in detail_list:
-            text = item.text.strip().lower()
-
-            if 'mileage:' in text or 'miles:' in text:
-                if 'mileage:' in text:
-                    result['mileage'] = text.split('mileage:')[1].strip()
-                else:
-                    result['mileage'] = text.split('miles:')[1].strip()
-            elif 'passenger:' in text or 'capacity:' in text:
-                if 'passenger:' in text:
-                    result['passengers'] = text.split('passenger:')[1].strip()
-                else:
-                    result['passengers'] = text.split('capacity:')[1].strip()
-            elif 'wheelchair:' in text:
-                result['wheelchair'] = text.split('wheelchair:')[1].strip()
-            elif 'engine:' in text:
-                result['engine'] = text.split('engine:')[1].strip()
-            elif 'transmission:' in text:
-                result['transmission'] = text.split('transmission:')[1].strip()
-            elif 'gvwr:' in text:
-                result['gvwr'] = text.split('gvwr:')[1].strip()
-            elif 'color:' in text and 'interior color:' not in text and 'exterior color:' not in text:
-                result['color'] = text.split('color:')[1].strip()
-            elif 'exterior color:' in text:
-                result['exterior_color'] = text.split('exterior color:')[1].strip()
-            elif 'interior color:' in text:
-                result['interior_color'] = text.split('interior color:')[1].strip()
-
-    def _extract_overview_info(self, soup: BeautifulSoup) -> Dict[str, Any]:
+    def _extract_overview_info(self, bus_details: dict) -> Dict[str, Any]:
         """Extrae información descriptiva específica del sitio MicrobirdParser."""
-        result = {}
+        interior_desc = 'Interior: '
+        exterior_desc = 'Exterior: '
+        features = 'Features: '
+        options = 'Options: '
 
-        # Descripción general
-        description_elem = soup.select_one('.inventory-description, .description')
-        if description_elem:
-            result["mdesc"] = description_elem.text.strip()
+        # bus_details = get_micro_bird_specs(pdf_url)
+        if not bus_details:
+            return {}
 
-        # MicrobirdParser a veces segmenta la descripción en secciones
-        sections = soup.select('.description-section, .info-section')
-        for section in sections:
-            heading = section.select_one('h3, h4')
-            content = section.select_one('.section-content, .content')
-
-            if heading and content:
-                heading_text = heading.text.strip().lower()
-                content_text = content.text.strip()
-
-                if 'interior' in heading_text:
-                    result["intdesc"] = content_text
-                elif 'exterior' in heading_text:
-                    result["extdesc"] = content_text
-                elif 'feature' in heading_text:
-                    result["features"] = content_text
-                elif 'spec' in heading_text:
-                    result["specs"] = content_text
+        for key, value in bus_details.items():
+            if 'exterior' in key.lower():
+                exterior_desc += value
+            elif 'interior' in key.lower():
+                interior_desc += value
+            elif 'options' in key.lower():
+                options += value
+            else:
+                features += value
+        result = {
+            "intdesc": interior_desc,
+            "extdesc": exterior_desc,
+            "features": features,
+            "mdesc": options,
+        }
 
         return result
 
     def _extract_images(self, soup: BeautifulSoup, base_url: str) -> List[Dict[str, Any]]:
-        """Extrae imágenes específicas del sitio MicrobirdParser."""
         images = []
-
-        # Galería de imágenes específica de MicrobirdParser
-        image_elements = soup.select('.inventory-gallery img, .gallery img, .slider img')
-
-        for idx, img in enumerate(image_elements):
-            # MicrobirdParser a veces usa data-src para carga diferida
-            src = img.get('data-src') or img.get('src', '')
-
-            image_info = {
-                "image_index": idx,
-                "url": urljoin(base_url, src),
-                "name": f"bus_image_{idx}",
-            }
-
-            # Extraer descripción/alt text si está disponible
-            if img.get('alt'):
-                image_info["description"] = img.get('alt')
-
-            images.append(image_info)
-
+        if wow_image := soup.find('wow-image', {'id': 'img-comp-kx0qksbs'}):
+            img = wow_image.find('img')
+            if img and 'src' in img.attrs:
+                img_url = img['src']
+                image_info = {
+                    "image_index": 0,
+                    "url": urljoin(base_url, img_url),
+                    "name": f"bus_image_{0}",
+                }
+                images.append(image_info)
         return images
