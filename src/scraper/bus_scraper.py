@@ -61,7 +61,7 @@ class BusScraper:
         else:
             response = requests.get(url, headers=self.headers, timeout=self.timeout, verify=False)
             response.raise_for_status()
-            time.sleep(self.delay)  # Respeta los límites de tasa
+            time.sleep(self.delay)
             return response.text
 
     def get_listing_urls(self, max_pages: int = 10) -> List[str]:
