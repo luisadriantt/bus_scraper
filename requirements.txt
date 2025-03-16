@@ -7,6 +7,6 @@ SQLAlchemy==2.0.23
 jsonschema==4.19.1
 python-dotenv==1.0.0
 lxml==4.9.3
-webdriver-manager==4.0.1
+webdriver-manager==4.0.2
 pandas==2.1.2
 pytest==7.4.3
